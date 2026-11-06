@@ -1,0 +1,60 @@
+version: '3.8'
+
+networks:
+  agent_internal:
+    internal: true
+  public_web:
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./data/caddy_data:/data
+    networks:
+      - public_web
+      - agent_internal
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./init-dbs.sh:/docker-entrypoint-initdb.d/init-dbs.sh
+    networks:
+      - agent_internal
+
+  nango:
+    image: nangohq/nango-server:latest
+    restart: always
+    depends_on:
+      - postgres
+    environment:
+      - NANGO_SECRET_KEY=${NANGO_ENCRYPTION_KEY}
+      - NANGO_DATABASE_URL=postgresql://nango_user:${NANGO_DB_PASS}@postgres:5432/nango_db
+      - NANGO_SERVER_URL=https://auth.latyr.com
+    networks:
+      - agent_internal
+
+  agent-microservice:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      - postgres
+      - nango
+    environment:
+      - DATABASE_URL=postgresql://agent_user:${AGENT_DB_PASS}@postgres:5432/agent_db
+      - NANGO_BASE_URL=http://nango:3003
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    networks:
+      - agent_internal
