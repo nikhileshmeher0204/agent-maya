@@ -23,8 +23,22 @@ def test_chat_endpoint_requires_auth(client):
         "/api/v1/agent/chat",
         json={"conversation_id": "test_conv", "message": "hello"},
     )
-    # Missing authorization header fails validation
     assert res.status_code in (401, 422)
+
+
+def test_chat_endpoint_streaming_offline(client):
+    """Verify end-to-end SSE chat stream in local mode without live API keys."""
+    headers = {"Authorization": "Bearer mock_token_usr_123"}
+    res = client.post(
+        "/api/v1/agent/chat",
+        json={"conversation_id": "conv_local_offline", "message": "Hello!"},
+        headers=headers,
+    )
+    assert res.status_code == 200
+    assert "text/event-stream" in res.headers["content-type"]
+    assert "event: token" in res.text
+    assert "Hello! I am Maya" in res.text
+    assert "event: done" in res.text
 
 
 def test_chat_endpoint_streaming(client, monkeypatch):

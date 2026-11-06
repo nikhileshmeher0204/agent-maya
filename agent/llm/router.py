@@ -1,7 +1,10 @@
 import json
 import os
 from typing import Any, Dict, List, Optional
+from dotenv import load_dotenv
 import litellm
+
+load_dotenv()
 from langchain_core.callbacks.manager import (
     AsyncCallbackManagerForLLMRun,
     CallbackManagerForLLMRun,
@@ -102,6 +105,16 @@ class ChatLiteLLMRouted(BaseChatModel):
             call_kwargs["tool_choice"] = "auto"
         if stop:
             call_kwargs["stop"] = stop
+
+        # Offline development fallback when API keys are not yet configured in local environment
+        has_keys = bool(os.getenv("GEMINI_API_KEY") or os.getenv("ANTHROPIC_API_KEY"))
+        if not has_keys and os.getenv("ENVIRONMENT") != "production":
+            offline_reply = (
+                "Hello! I am Maya, your autonomous authorized assistant. "
+                "I am running in local offline mode. To activate live LLM reasoning, "
+                "please configure GEMINI_API_KEY in your .env file."
+            )
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=offline_reply))])
 
         # Execute via LiteLLM with automatic quota/rate-limit fallback
         response = await litellm.acompletion(**call_kwargs)

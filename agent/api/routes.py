@@ -1,6 +1,9 @@
 import json
 from typing import AsyncGenerator
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query, status
+
+load_dotenv()
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage
