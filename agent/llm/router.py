@@ -54,12 +54,14 @@ def _convert_message_to_dict(message: BaseMessage) -> Dict[str, Any]:
 class ChatLiteLLMRouted(BaseChatModel):
     """LiteLLM routed chat model with automatic 429 failover.
     
-    Primary: Gemini 2.5 Flash
-    Standby: Claude 3.5 Haiku
+    Primary: Gemini 3.5 Flash (fallback to Gemini 3.5 Flash Lite / Claude 3.5 Haiku)
     """
 
-    model: str = "gemini/gemini-2.5-flash"
-    fallback_models: List[str] = ["anthropic/claude-3-5-haiku-20241022"]
+    model: str = os.getenv("LLM_MODEL", "gemini/gemini-3.5-flash")
+    fallback_models: List[str] = [
+        "gemini/gemini-3.5-flash-lite",
+        "anthropic/claude-3-5-haiku-20241022",
+    ]
     bound_tools: List[Dict[str, Any]] = []
     temperature: float = 0.2
 
@@ -94,12 +96,21 @@ class ChatLiteLLMRouted(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         formatted = [_convert_message_to_dict(m) for m in messages]
+        # Include only fallbacks for which an API key is actually present
+        available_fallbacks = []
+        for fb in self.fallback_models:
+            if "anthropic" in fb and os.getenv("ANTHROPIC_API_KEY"):
+                available_fallbacks.append(fb)
+            elif "gemini" in fb and os.getenv("GEMINI_API_KEY") and fb != self.model:
+                available_fallbacks.append(fb)
+
         call_kwargs: Dict[str, Any] = {
             "model": self.model,
             "messages": formatted,
-            "fallbacks": self.fallback_models,
             "temperature": self.temperature,
         }
+        if available_fallbacks:
+            call_kwargs["fallbacks"] = available_fallbacks
         if self.bound_tools:
             call_kwargs["tools"] = self.bound_tools
             call_kwargs["tool_choice"] = "auto"
