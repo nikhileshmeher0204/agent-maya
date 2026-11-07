@@ -1,4 +1,4 @@
-# Reverse proxy for Agent Maya Microservice (SSE Streaming)
+# Reverse proxy for Agent Synapse Microservice (SSE Streaming)
 agent.latyr.com {
     reverse_proxy agent-microservice:8000 {
         flush_interval -1 # Disable response buffering for immediate SSE streaming

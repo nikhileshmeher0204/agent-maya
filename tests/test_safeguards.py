@@ -116,7 +116,7 @@ async def test_safeguard_5_context_trimmer():
     result = await context_trimmer(state)
     messages = result["messages"]
     assert isinstance(messages[0], SystemMessage)
-    assert "Maya" in messages[0].content
+    assert "assistant" in messages[0].content
     # Preserves summary + 6 recent turns = 8 messages
     assert len(messages) <= 8
 

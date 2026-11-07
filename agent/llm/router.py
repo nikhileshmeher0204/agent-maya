@@ -121,7 +121,7 @@ class ChatLiteLLMRouted(BaseChatModel):
         has_keys = bool(os.getenv("GEMINI_API_KEY") or os.getenv("ANTHROPIC_API_KEY"))
         if not has_keys and os.getenv("ENVIRONMENT") != "production":
             offline_reply = (
-                "Hello! I am Maya, your autonomous authorized assistant. "
+                "Hello! I am your autonomous authorized assistant companion. "
                 "I am running in local offline mode. To activate live LLM reasoning, "
                 "please configure GEMINI_API_KEY in your .env file."
             )

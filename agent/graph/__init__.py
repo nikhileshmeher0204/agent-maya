@@ -1,1 +1,1 @@
-"""LangGraph state machine for Agent Maya."""
+"""LangGraph state machine for Agent Synapse."""

@@ -1,15 +1,15 @@
-# Agent Maya (`agent-maya`)
+# Agent Synapse (`agent-synapse`)
 ## Autonomous, Plug-and-Play Multi-Tenant Agentic Microservice ("Brain-as-a-Service")
 
-Agent Maya is an application-agnostic, multi-tenant AI companion microservice built with **FastAPI**, **LangGraph**, **LiteLLM**, and the **Model Context Protocol (MCP)**. It serves as an authorized reasoning engine for connected client ecosystems while remaining 100% decoupled from underlying domain backends.
+Agent Synapse is an application-agnostic, multi-tenant AI companion microservice built with **FastAPI**, **LangGraph**, **LiteLLM**, and the **Model Context Protocol (MCP)**. It serves as an authorized reasoning engine for connected client ecosystems while remaining 100% decoupled from underlying domain backends. Individual client applications provide their own persona naming and styling dynamically.
 
 ---
 
 ## 🏛️ Ecosystem Invariants
 
 1. **100% Plug-and-Play Agent Microservice**: Zero application-specific models, imports, or hardcoded logic. Tools are dynamically discovered at runtime via MCP (`tools/list` and `tools/call`).
-2. **Strict Application Decoupling**: Peer applications remain completely isolated. Maya interacts with external tools via standard JSON-RPC 2.0 MCP interfaces.
-3. **Zero Agent Involvement in Linking or Auth**: Maya is strictly a stateless reasoning engine and tool executor. OAuth redirect flows, token encryption (AES-256-GCM), and token refresh loops are delegated to **Nango**.
+2. **Strict Application Decoupling**: Peer applications remain completely isolated. Agent Synapse interacts with external tools via standard JSON-RPC 2.0 MCP interfaces.
+3. **Zero Agent Involvement in Linking or Auth**: Agent Synapse is strictly a stateless reasoning engine and tool executor. OAuth redirect flows, token encryption (AES-256-GCM), and token refresh loops are delegated to **Nango**.
 4. **Zero Tokens / Credentials in Request Payloads**: Chat payloads are strictly `{"conversation_id": "...", "message": "..."}`. Authentication is handled statelessly via transport headers.
 
 ---
@@ -41,8 +41,8 @@ Agent Maya is an application-agnostic, multi-tenant AI companion microservice bu
 
 ```bash
 # Clone the repository
-git clone https://github.com/nikhileshmeher0204/agent-maya.git
-cd agent-maya
+git clone https://github.com/nikhileshmeher0204/agent-synapse.git
+cd agent-synapse
 
 # Install dependencies using uv
 uv venv

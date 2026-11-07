@@ -15,7 +15,7 @@ from agent.db.init import get_messages_since, save_message_record
 from agent.graph.graph import agent_graph
 
 app = FastAPI(
-    title="Agent Maya Microservice",
+    title="Agent Synapse Microservice",
     description="Autonomous, plug-and-play multi-tenant agentic microservice",
     version="1.0.0",
 )
@@ -44,7 +44,7 @@ class ConsentRequest(BaseModel):
 @app.get("/health")
 async def health():
     """Health check endpoint."""
-    return {"status": "ok", "service": "agent-maya"}
+    return {"status": "ok", "service": "agent-synapse"}
 
 
 @app.post("/api/v1/agent/chat")
@@ -140,8 +140,9 @@ async def consent_endpoint(
     req: ConsentRequest,
     user: dict = Depends(verify_firebase_jwt),
 ):
-    """Resume an interrupted LangGraph state after Human-in-the-Loop decision."""
-    config = {"configurable": {"thread_id": req.conversation_id}}
+    """Resume an interrupted LangGraph state after Human-in-the-Loop decision with SSE streaming."""
+    thread_id = req.conversation_id
+    config = {"configurable": {"thread_id": thread_id}}
     state = await agent_graph.aget_state(config)
 
     if not state.next:
@@ -150,15 +151,60 @@ async def consent_endpoint(
             detail="No active pending action awaiting consent for this conversation.",
         )
 
-    # Resume the interrupted graph using Command(resume=...)
-    resume_payload = {"approved": req.approved, "action_id": req.action_id}
-    await agent_graph.aupdate_state(config, Command(resume=resume_payload))
+    resume_command = Command(resume={"approved": req.approved, "action_id": req.action_id})
 
-    return {
-        "status": "RESUMED",
-        "action_id": req.action_id,
-        "approved": req.approved,
-    }
+    async def sse_event_stream() -> AsyncGenerator[str, None]:
+        seq_id = 0
+        full_content = ""
+        thought_process = ""
+
+        async for event in agent_graph.astream_events(resume_command, config=config, version="v2"):
+            kind = event.get("event")
+
+            # 1. Thought progress stream
+            if kind == "on_chat_model_start":
+                seq_id += 1
+                thought_process = "Thinking..."
+                yield f"event: thought\nid: {seq_id}\ndata: {json.dumps({'status': thought_process, 'seq': seq_id})}\n\n"
+
+            # 2. Token text streaming
+            elif kind == "on_chat_model_stream":
+                chunk = event.get("data", {}).get("chunk")
+                token = getattr(chunk, "content", "") if chunk else ""
+                if token:
+                    seq_id += 1
+                    full_content += token
+                    yield f"event: token\nid: {seq_id}\ndata: {json.dumps({'text': token, 'seq': seq_id})}\n\n"
+
+            # 3. Custom events
+            elif kind == "on_custom_event":
+                event_name = event.get("name")
+                if event_name in ("surface_added", "requires_consent"):
+                    seq_id += 1
+                    payload = event.get("data", {})
+                    payload["seq"] = seq_id
+                    yield f"event: {event_name}\nid: {seq_id}\ndata: {json.dumps(payload)}\n\n"
+
+        curr_state = await agent_graph.aget_state(config)
+        if not full_content and curr_state.values.get("messages"):
+            last_msg = curr_state.values["messages"][-1]
+            if isinstance(last_msg, AIMessage) and last_msg.content:
+                seq_id += 1
+                full_content = str(last_msg.content)
+                yield f"event: token\nid: {seq_id}\ndata: {json.dumps({'text': full_content, 'seq': seq_id})}\n\n"
+
+        save_message_record(
+            conversation_id=thread_id,
+            role="assistant",
+            content=full_content,
+            sequence_id=seq_id,
+            thought_process=thought_process,
+        )
+
+        seq_id += 1
+        yield f"event: done\nid: {seq_id}\ndata: {json.dumps({'seq': seq_id})}\n\n"
+
+    return StreamingResponse(sse_event_stream(), media_type="text/event-stream")
 
 
 @app.get("/api/v1/agent/sessions/{conversation_id}/messages")

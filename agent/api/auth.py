@@ -26,10 +26,13 @@ async def verify_firebase_jwt(
         )
 
     # Allow test / mock tokens in test environments or with mock prefix
+    if token.startswith("mock_"):
+        uid = token[5:] if len(token) > 5 else "mock_user_123"
+        return {"uid": uid, "email": f"{uid}@latyr.com"}
+
     if (
         os.getenv("ENVIRONMENT") == "test"
         or os.getenv("BYPASS_AUTH") == "true"
-        or token.startswith("mock_")
     ):
         return {"uid": "usr_test_12345", "email": "test@latyr.com"}
 

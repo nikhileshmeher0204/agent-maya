@@ -1,1 +1,1 @@
-"""Agent Maya test suite."""
+"""Agent Synapse test suite."""

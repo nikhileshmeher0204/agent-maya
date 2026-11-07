@@ -27,7 +27,7 @@ class MockLLM:
 @pytest.mark.asyncio
 async def test_graph_conversational_cycle_without_tools(monkeypatch):
     """Test standard conversational turn without tool calls."""
-    mock_llm = MockLLM([AIMessage(content="I am Maya, your assistant.")])
+    mock_llm = MockLLM([AIMessage(content="I am your assistant.")])
     monkeypatch.setattr("agent.graph.nodes.get_llm", lambda: mock_llm)
 
     checkpointer = MemorySaver()
@@ -46,7 +46,7 @@ async def test_graph_conversational_cycle_without_tools(monkeypatch):
     messages = final_state["messages"]
     last_msg = messages[-1]
     assert isinstance(last_msg, AIMessage)
-    assert last_msg.content == "I am Maya, your assistant."
+    assert last_msg.content == "I am your assistant."
 
 
 @pytest.mark.asyncio

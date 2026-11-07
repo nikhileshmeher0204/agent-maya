@@ -17,7 +17,7 @@ from agent.graph.state import AgentState
 
 
 def create_agent_graph(checkpointer: Optional[BaseCheckpointSaver] = None):
-    """Build and compile the cyclic Agent Maya LangGraph state machine."""
+    """Build and compile the cyclic Agent Synapse LangGraph state machine."""
     builder = StateGraph(AgentState)
 
     # 1. Register Nodes

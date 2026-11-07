@@ -78,7 +78,9 @@ async def context_trimmer(state: AgentState) -> dict:
     """
     profile_str = json.dumps(state.get("user_profile", {}))
     system_prompt = (
-        f"You are Maya, an intelligent autonomous authorized assistant. "
+        f"You are an intelligent, autonomous authorized AI assistant companion. "
+        f"You help the user manage, retrieve, and organize their personal data through authorized tools. "
+        f"If the client application or user specifies a custom companion persona or name, adopt that persona respectfully. "
         f"User Profile & Preferences: {profile_str}"
     )
 

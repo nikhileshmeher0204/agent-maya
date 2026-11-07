@@ -4,7 +4,7 @@ from agent.graph.state import AgentState, PendingAction
 
 
 def test_graph_compilation():
-    """Verify that Agent Maya StateGraph compiles cleanly with MemorySaver."""
+    """Verify that Agent Synapse StateGraph compiles cleanly with MemorySaver."""
     checkpointer = MemorySaver()
     graph = create_agent_graph(checkpointer=checkpointer)
     assert graph is not None
