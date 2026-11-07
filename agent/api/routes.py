@@ -47,6 +47,31 @@ async def health():
     return {"status": "ok", "service": "agent-synapse"}
 
 
+def extract_tool_description(tool_name: str, args: dict) -> tuple[str, str, str]:
+    """Return (in_progress_status, step_log, summary) for a tool call."""
+    if tool_name == "search_personal_library":
+        q = args.get("query", "").strip()
+        status = f"Searching library for '{q}'..." if q else "Searching personal library..."
+        log = f"Searched library for '{q}'" if q else "Searched personal library"
+        summary = f"Searched library for '{q}'" if q else "Searched personal library"
+        return status, log, summary
+    elif tool_name == "list_user_collections":
+        return "Inspecting collections...", "Inspected personal collections", "Inspected personal collections"
+    elif tool_name == "create_personal_collection":
+        name = args.get("name", "").strip()
+        status = f"Preparing collection '{name}'..." if name else "Preparing new collection..."
+        log = f"Created collection '{name}'" if name else "Created collection"
+        summary = f"Created collection '{name}'" if name else "Created collection"
+        return status, log, summary
+    elif tool_name == "add_entities_to_collection":
+        return "Adding item to collection...", "Added item to collection", "Added item to collection"
+    elif tool_name == "delete_personal_collection":
+        return "Deleting collection...", "Deleted collection", "Deleted collection"
+    else:
+        clean_name = tool_name.replace("_", " ").title()
+        return f"Executing {clean_name}...", f"Executed {clean_name}", f"Executed {clean_name}"
+
+
 @app.post("/api/v1/agent/chat")
 async def chat_endpoint(
     req: ChatRequest,
@@ -74,19 +99,62 @@ async def chat_endpoint(
     async def sse_event_stream() -> AsyncGenerator[str, None]:
         seq_id = 0
         full_content = ""
-        thought_process = ""
+        current_status = "Analyzing request..."
+        step_logs: List[str] = []
+        tool_summary: Optional[str] = None
+        executed_tools = False
 
         # Emits progressive stream events
         async for event in agent_graph.astream_events(initial_input, config=config, version="v2"):
             kind = event.get("event")
+            node = event.get("metadata", {}).get("langgraph_node")
 
-            # 1. Thought progress stream
-            if kind == "on_chat_model_start":
+            # 1. Real LangGraph node state transitions
+            if kind == "on_chain_start" and node:
+                if node == "hydrate_context":
+                    current_status = "Retrieving user context & authorized tools..."
+                    if "Retrieved user profile & authorized tools" not in step_logs:
+                        step_logs.append("Retrieved user profile & authorized tools")
+                elif node == "context_trimmer":
+                    current_status = "Analyzing conversation memory..."
+                    if "Analyzed conversation memory" not in step_logs:
+                        step_logs.append("Analyzed conversation memory")
+                elif node == "reasoner":
+                    if executed_tools:
+                        current_status = "Synthesizing response from findings..."
+                    else:
+                        current_status = "Reasoning over request..."
+                elif node == "consent_gate":
+                    current_status = "Evaluating action authorization & safety..."
+                    if "Evaluated action authorization" not in step_logs:
+                        step_logs.append("Evaluated action authorization")
+                elif node == "execute_tool":
+                    current_status = "Executing authorized tools..."
+                    executed_tools = True
+                elif node == "async_memory":
+                    current_status = "Updating knowledge graph..."
+                    if "Updated knowledge graph" not in step_logs:
+                        step_logs.append("Updated knowledge graph")
+
                 seq_id += 1
-                thought_process = "Thinking..."
-                yield f"event: thought\nid: {seq_id}\ndata: {json.dumps({'status': thought_process, 'seq': seq_id})}\n\n"
+                yield f"event: thought\nid: {seq_id}\ndata: {json.dumps({'status': current_status, 'logs': step_logs, 'summary': tool_summary, 'seq': seq_id})}\n\n"
 
-            # 2. Token text streaming
+            # 2. Tool calls planned by the LLM
+            elif kind == "on_chat_model_end":
+                output = event.get("data", {}).get("output")
+                if output and hasattr(output, "tool_calls") and output.tool_calls:
+                    for tc in output.tool_calls:
+                        t_name = tc.get("name", "")
+                        t_args = tc.get("args", {})
+                        status_str, log_str, summ_str = extract_tool_description(t_name, t_args)
+                        current_status = status_str
+                        if log_str not in step_logs:
+                            step_logs.append(log_str)
+                        tool_summary = summ_str
+                        seq_id += 1
+                        yield f"event: thought\nid: {seq_id}\ndata: {json.dumps({'status': current_status, 'logs': step_logs, 'summary': tool_summary, 'seq': seq_id})}\n\n"
+
+            # 3. Token text streaming
             elif kind == "on_chat_model_stream":
                 chunk = event.get("data", {}).get("chunk")
                 token = getattr(chunk, "content", "") if chunk else ""
@@ -95,7 +163,7 @@ async def chat_endpoint(
                     full_content += token
                     yield f"event: token\nid: {seq_id}\ndata: {json.dumps({'text': token, 'seq': seq_id})}\n\n"
 
-            # 3. Custom events (A2UI GenUI surface or consent card)
+            # 4. Custom events (A2UI GenUI surface or consent card)
             elif kind == "on_custom_event":
                 event_name = event.get("name")
                 if event_name in ("surface_added", "requires_consent"):
@@ -120,13 +188,18 @@ async def chat_endpoint(
                 full_content = str(last_msg.content)
                 yield f"event: token\nid: {seq_id}\ndata: {json.dumps({'text': full_content, 'seq': seq_id})}\n\n"
 
+        # Final thought state
+        final_summary = tool_summary or ("Completed reasoning" if step_logs else "Completed")
+        seq_id += 1
+        yield f"event: thought\nid: {seq_id}\ndata: {json.dumps({'status': final_summary, 'logs': step_logs, 'summary': final_summary, 'seq': seq_id})}\n\n"
+
         # Save message record for Safeguard 4 reconnect hydration
         save_message_record(
             conversation_id=thread_id,
             role="assistant",
             content=full_content,
             sequence_id=seq_id,
-            thought_process=thought_process,
+            thought_process=final_summary,
         )
 
         seq_id += 1
@@ -156,18 +229,50 @@ async def consent_endpoint(
     async def sse_event_stream() -> AsyncGenerator[str, None]:
         seq_id = 0
         full_content = ""
-        thought_process = ""
+        current_status = "Executing approved action..." if req.approved else "Action cancelled by user"
+        step_logs: List[str] = [f"Action {'approved' if req.approved else 'declined'} by user"]
+        tool_summary: Optional[str] = f"{'Executed' if req.approved else 'Cancelled'} action"
+        executed_tools = req.approved
+
+        # Initial thought for resumed action
+        seq_id += 1
+        yield f"event: thought\nid: {seq_id}\ndata: {json.dumps({'status': current_status, 'logs': step_logs, 'summary': tool_summary, 'seq': seq_id})}\n\n"
 
         async for event in agent_graph.astream_events(resume_command, config=config, version="v2"):
             kind = event.get("event")
+            node = event.get("metadata", {}).get("langgraph_node")
 
-            # 1. Thought progress stream
-            if kind == "on_chat_model_start":
+            # 1. Real LangGraph node state transitions
+            if kind == "on_chain_start" and node:
+                if node == "execute_tool":
+                    current_status = "Executing authorized tool..."
+                    executed_tools = True
+                elif node == "reasoner":
+                    current_status = "Synthesizing response from findings..."
+                elif node == "async_memory":
+                    current_status = "Updating knowledge graph..."
+                    if "Updated knowledge graph" not in step_logs:
+                        step_logs.append("Updated knowledge graph")
+
                 seq_id += 1
-                thought_process = "Thinking..."
-                yield f"event: thought\nid: {seq_id}\ndata: {json.dumps({'status': thought_process, 'seq': seq_id})}\n\n"
+                yield f"event: thought\nid: {seq_id}\ndata: {json.dumps({'status': current_status, 'logs': step_logs, 'summary': tool_summary, 'seq': seq_id})}\n\n"
 
-            # 2. Token text streaming
+            # 2. Tool calls if any
+            elif kind == "on_chat_model_end":
+                output = event.get("data", {}).get("output")
+                if output and hasattr(output, "tool_calls") and output.tool_calls:
+                    for tc in output.tool_calls:
+                        t_name = tc.get("name", "")
+                        t_args = tc.get("args", {})
+                        status_str, log_str, summ_str = extract_tool_description(t_name, t_args)
+                        current_status = status_str
+                        if log_str not in step_logs:
+                            step_logs.append(log_str)
+                        tool_summary = summ_str
+                        seq_id += 1
+                        yield f"event: thought\nid: {seq_id}\ndata: {json.dumps({'status': current_status, 'logs': step_logs, 'summary': tool_summary, 'seq': seq_id})}\n\n"
+
+            # 3. Token text streaming
             elif kind == "on_chat_model_stream":
                 chunk = event.get("data", {}).get("chunk")
                 token = getattr(chunk, "content", "") if chunk else ""
@@ -176,7 +281,7 @@ async def consent_endpoint(
                     full_content += token
                     yield f"event: token\nid: {seq_id}\ndata: {json.dumps({'text': token, 'seq': seq_id})}\n\n"
 
-            # 3. Custom events
+            # 4. Custom events
             elif kind == "on_custom_event":
                 event_name = event.get("name")
                 if event_name in ("surface_added", "requires_consent"):
@@ -193,12 +298,16 @@ async def consent_endpoint(
                 full_content = str(last_msg.content)
                 yield f"event: token\nid: {seq_id}\ndata: {json.dumps({'text': full_content, 'seq': seq_id})}\n\n"
 
+        final_summary = tool_summary or ("Completed reasoning" if step_logs else "Completed")
+        seq_id += 1
+        yield f"event: thought\nid: {seq_id}\ndata: {json.dumps({'status': final_summary, 'logs': step_logs, 'summary': final_summary, 'seq': seq_id})}\n\n"
+
         save_message_record(
             conversation_id=thread_id,
             role="assistant",
             content=full_content,
             sequence_id=seq_id,
-            thought_process=thought_process,
+            thought_process=final_summary,
         )
 
         seq_id += 1
